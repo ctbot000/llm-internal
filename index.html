@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How an LLM Works</title>
+<meta name="description" content="An interactive, visual walkthrough of a large language model: tokenization, embeddings, attention, layers, next-token prediction, sampling, and training — every step runnable in the page.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="How an LLM Works">
+<meta property="og:description" content="Interactive walkthrough of a large language model, from raw text to sampled tokens.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238b7cff'/%3E%3Cpath d='M8 21V11h3.2l4.8 6.4V11h3.2v10h-3.2L11.2 14.6V21z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // Runs before first paint: applies the stored theme (no flash) and marks that
+  // JS is alive, which is what gates the reveal animation's opacity:0.
+  (function () {
+    var r = document.documentElement;
+    r.classList.add('js');
+    try {
+      var t = localStorage.getItem('llm-theme');
+      if (t === 'light' || t === 'dark') r.setAttribute('data-theme', t);
+      else if (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) r.setAttribute('data-theme', 'light');
+    } catch (e) { /* storage unavailable: keep the default theme */ }
+  })();
+</script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="#top">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-text">How an LLM Works</span>
+  </a>
+  <nav class="nav" id="nav" aria-label="Sections">
+    <a href="#tokens"><span class="nav-n">1</span><span class="nav-t">Tokens</span></a>
+    <a href="#vectors"><span class="nav-n">2</span><span class="nav-t">Vectors</span></a>
+    <a href="#attention"><span class="nav-n">3</span><span class="nav-t">Attention</span></a>
+    <a href="#layers"><span class="nav-n">4</span><span class="nav-t">Layers</span></a>
+    <a href="#predict"><span class="nav-n">5</span><span class="nav-t">Prediction</span></a>
+    <a href="#generate"><span class="nav-n">6</span><span class="nav-t">Generation</span></a>
+    <a href="#train"><span class="nav-n">7</span><span class="nav-t">Training</span></a>
+    <a href="#limits"><span class="nav-n">8</span><span class="nav-t">Limits</span></a>
+  </nav>
+  <button class="theme-toggle" id="theme" type="button" aria-label="Switch colour theme">
+    <span class="theme-icon" aria-hidden="true"></span>
+  </button>
+</header>
+<div class="progress" aria-hidden="true"><div class="progress-bar" id="progress"></div></div>
+
+<main id="main">
+
+<!-- ── hero ───────────────────────────────────────────────────────────────── -->
+<div class="hero" id="top">
+  <div class="wrap">
+    <p class="eyebrow">Interactive explainer</p>
+    <h1>A language model is one loop, run over and over.</h1>
+    <p class="lede">
+      It turns text into numbers, mixes those numbers together so every word can
+      see the words around it, and produces one guess about what comes next. Then
+      it appends the guess and does the whole thing again. Everything else is
+      detail — but the detail is where it gets interesting.
+    </p>
+    <div class="hero-cta">
+      <a class="btn primary" href="#tokens">Start at step one</a>
+      <a class="btn" href="#generate">Skip to the loop</a>
+    </div>
+
+    <div class="hero-strip">
+      <div class="strip-label">One forward pass</div>
+      <div class="pipeline">
+        <a class="pipe-step" href="#tokens">
+          <span class="pipe-n">01</span><span class="pipe-t">Tokenize</span>
+          <span class="pipe-d">Text becomes a list of integer IDs.</span>
+        </a>
+        <a class="pipe-step" href="#vectors">
+          <span class="pipe-n">02</span><span class="pipe-t">Embed</span>
+          <span class="pipe-d">Each ID becomes a vector with meaning in it.</span>
+        </a>
+        <a class="pipe-step" href="#attention">
+          <span class="pipe-n">03</span><span class="pipe-t">Attend</span>
+          <span class="pipe-d">Every position pulls in context from earlier ones.</span>
+        </a>
+        <a class="pipe-step" href="#layers">
+          <span class="pipe-n">04</span><span class="pipe-t">Stack</span>
+          <span class="pipe-d">Repeat that block dozens of times.</span>
+        </a>
+        <a class="pipe-step" href="#predict">
+          <span class="pipe-n">05</span><span class="pipe-t">Predict</span>
+          <span class="pipe-d">One score for every token in the vocabulary.</span>
+        </a>
+        <a class="pipe-step" href="#generate">
+          <span class="pipe-n">06</span><span class="pipe-t">Sample</span>
+          <span class="pipe-d">Pick one, append it, start over.</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 1. tokens ──────────────────────────────────────────────────────────── -->
+<section class="section" id="tokens">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 01 · Tokenization</p>
+      <h2>The model never sees letters</h2>
+      <p class="lede">
+        Before anything else, your text is chopped into <strong>tokens</strong> —
+        chunks that are usually a common word, a word fragment, or a single
+        character. Each chunk is looked up in a fixed vocabulary and replaced by
+        its integer ID. That list of integers is the only thing that enters the
+        network.
+      </p>
+      <p>
+        The vocabulary is built once, before training, by a compression
+        algorithm that merges the most frequent character pairs over and over.
+        Common words survive whole; rare words get shattered. Type below and
+        watch where the seams fall.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Tokenizer</span>
+        <span class="spacer"></span>
+        <div id="tok-presets"></div>
+      </div>
+      <div class="panel-body" id="tok-body"></div>
+      <div class="panel-foot" id="tok-foot"></div>
+    </div>
+
+    <div class="callout note reveal">
+      <p>
+        <strong>Why this matters later.</strong> A model asked to count the
+        letters in <code>strawberry</code> is not looking at letters. It sees a
+        handful of opaque IDs. Ask the tokenizer above and you will see exactly what
+        it is being handed — most of the surprising failures of language models
+        start right here, at the seams.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── 2. vectors ─────────────────────────────────────────────────────────── -->
+<section class="section" id="vectors">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 02 · Embeddings</p>
+      <h2>Each ID becomes a direction in space</h2>
+      <p class="lede">
+        A token ID is just a label — ID 4021 is not "more" than ID 17. So the
+        first layer is a lookup table: one learned vector per vocabulary entry.
+        A real model uses a few thousand numbers per token. The toy below uses
+        eight, each one hand-labelled so you can read them.
+      </p>
+      <p>
+        Nothing labels those axes in a real model. They emerge from training,
+        and the useful fact about them is <strong>geometric</strong>: words used
+        in similar contexts end up pointing in similar directions, and the
+        directions themselves carry meaning you can do arithmetic with.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Embedding space</span>
+        <span class="spacer"></span>
+        <div id="emb-modes"></div>
+      </div>
+      <div class="panel-body" id="emb-body"></div>
+      <div class="panel-foot" id="emb-foot"></div>
+    </div>
+
+    <div class="callout reveal">
+      <p>
+        <strong>Position goes in here too.</strong> Attention has no built-in
+        sense of order, so the model also injects where each token sits in the
+        sequence — by rotating the vector by an angle proportional to its
+        position. That rotation is what the "previous token" head in the next
+        section is reading.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── 3. attention ───────────────────────────────────────────────────────── -->
+<section class="section" id="attention">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 03 · Self-attention</p>
+      <h2>Every word gets to look at the other words</h2>
+      <p class="lede">
+        This is the part that made transformers work. Each position emits a
+        <strong>query</strong> ("what am I looking for?"), and every position
+        emits a <strong>key</strong> ("what am I?"). Dot the query against all the
+        keys, soften the scores into percentages, and use them to average
+        together the other positions' <strong>values</strong>.
+      </p>
+      <p>
+        Pick a query token below. The bars are real numbers: the scores are
+        computed from actual query and key projections and pushed through the
+        same softmax the model uses. Different heads learn to look for completely
+        different things.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Attention head</span>
+        <span class="spacer"></span>
+        <div id="att-heads"></div>
+      </div>
+      <div class="panel-body" id="att-body"></div>
+      <div class="panel-foot" id="att-foot"></div>
+    </div>
+
+    <div class="callout warn reveal">
+      <p>
+        <strong>The cost that shapes everything.</strong> Every token compares
+        itself with every earlier token, so work grows with the square of the
+        context length. Doubling the context roughly quadruples the attention
+        cost. That single fact is why context windows are a headline feature and
+        why so much research is aimed at this one matrix.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── 4. layers ──────────────────────────────────────────────────────────── -->
+<section class="section" id="layers">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 04 · The stack</p>
+      <h2>The same block, dozens of times over</h2>
+      <p class="lede">
+        One attention block plus one small feed-forward network makes a
+        <strong>layer</strong>. Stack a few dozen of them and you have the model.
+        Each layer writes its output back into a shared running vector — the
+        residual stream — rather than replacing it, so early information
+        survives all the way to the top.
+      </p>
+      <p>
+        Attention moves information <em>between</em> positions. The feed-forward
+        network then works on each position alone, and is where most of the
+        parameters live: it behaves like a big key–value memory of facts and
+        patterns learned during training.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Residual stream</span>
+        <span class="spacer"></span>
+        <div id="lay-controls"></div>
+      </div>
+      <div class="panel-body" id="lay-body"></div>
+      <div class="panel-foot" id="lay-foot"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 5. prediction ──────────────────────────────────────────────────────── -->
+<section class="section" id="predict">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 05 · Logits and sampling</p>
+      <h2>One number for every word it knows</h2>
+      <p class="lede">
+        At the top of the stack, the final vector is multiplied by the embedding
+        table one more time, backwards. Out comes a <strong>logit</strong> for
+        every entry in the vocabulary — a raw, unbounded score. Softmax turns
+        those into probabilities that sum to one.
+      </p>
+      <p>
+        Then something has to choose. Always taking the top-scoring token makes
+        the model repetitive; picking too freely makes it incoherent. The knobs
+        below are the ones every chat interface exposes, and they all reshape
+        this one distribution before the draw.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Next-token distribution</span>
+        <span class="spacer"></span>
+        <div id="pred-context"></div>
+      </div>
+      <div class="panel-body" id="pred-body"></div>
+      <div class="panel-foot" id="pred-foot"></div>
+    </div>
+
+    <div class="callout note reveal">
+      <p>
+        <strong>Temperature is a divisor, not a personality.</strong> Every logit
+        is divided by it before the softmax. Below 1 the gaps widen and the top
+        token dominates; above 1 they compress and the tail gets a real chance.
+        At 0 it stops being a sample at all and becomes <code>argmax</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── 6. generation ──────────────────────────────────────────────────────── -->
+<section class="section" id="generate">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 06 · The loop</p>
+      <h2>Append and repeat</h2>
+      <p class="lede">
+        A model does not write a sentence. It writes one token, glues it to the
+        end of the input, and runs the entire stack again from scratch. The
+        fluency you read is that loop running a few hundred times, each pass
+        knowing only what the passes before it happened to choose.
+      </p>
+      <p>
+        The generator below is a real, running language model — a small one
+        trained by counting word sequences in the corpus at the bottom of this
+        page. It is far too simple to be useful, and the loop it runs is exactly
+        the loop a frontier model runs.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Autoregressive generation</span>
+        <span class="spacer"></span>
+        <div id="gen-controls"></div>
+      </div>
+      <div class="panel-body" id="gen-body"></div>
+      <div class="panel-foot" id="gen-foot"></div>
+    </div>
+
+    <div class="callout reveal">
+      <p>
+        <strong>Why the first token is the slow one.</strong> The whole prompt
+        has to be processed before anything appears, and every later token
+        re-reads all of it. Models cache the keys and values they already
+        computed so each new step only does work for the one new position — which
+        is why output streams out at a steady pace after an initial pause.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── 7. training ────────────────────────────────────────────────────────── -->
+<section class="section" id="train">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 07 · Training</p>
+      <h2>Where the numbers came from</h2>
+      <p class="lede">
+        Every weight starts as noise. Show the model a piece of real text, hide
+        the next token, and measure how surprised it is by the truth — that
+        surprise is the <strong>loss</strong>. Nudge every weight slightly in the
+        direction that would have reduced it. Repeat a few trillion times.
+      </p>
+      <p>
+        The demo below is not an animation. It is gradient descent running in
+        your browser on a real model: a softmax over character pairs, roughly a
+        thousand weights, trained on the corpus at the bottom of the page. Press
+        train and watch the loss fall and the weight matrix organise itself.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head">
+        <span class="panel-title">Gradient descent, live</span>
+        <span class="spacer"></span>
+        <div id="train-controls"></div>
+      </div>
+      <div class="panel-body" id="train-body"></div>
+      <div class="panel-foot" id="train-foot"></div>
+    </div>
+
+    <div class="copy reveal" style="margin-top:34px">
+      <h3>What the full recipe adds</h3>
+      <div class="steps">
+        <div class="step-item"><div><b>Pretraining.</b> The same next-token objective as the demo, on a very large text corpus. This is where almost all the knowledge and nearly all the compute goes.</div></div>
+        <div class="step-item"><div><b>Supervised fine-tuning.</b> Further training on examples of instructions followed well, which is what turns a text continuer into something that answers you.</div></div>
+        <div class="step-item"><div><b>Preference tuning.</b> Humans (or a model standing in for them) rank competing answers; the model is optimised toward the preferred ones. Tone, refusals and helpfulness are largely shaped here.</div></div>
+        <div class="step-item"><div><b>Everything at inference.</b> System prompts, retrieved documents and tool results are not training. They are just more tokens placed in the context before the loop starts.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 8. limits ──────────────────────────────────────────────────────────── -->
+<section class="section" id="limits">
+  <div class="wrap">
+    <div class="copy reveal">
+      <p class="eyebrow">Step 08 · Consequences</p>
+      <h2>What the mechanism explains</h2>
+      <p class="lede">
+        Most well-known quirks of language models are not bolted-on flaws. They
+        fall straight out of the seven steps above.
+      </p>
+    </div>
+
+    <div class="panel reveal">
+      <div class="panel-head"><span class="panel-title">Behaviour, and where it comes from</span></div>
+      <div class="panel-body">
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead>
+              <tr><th>What you see</th><th>Where it comes from</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Confident wrong answers</td>
+                <td>The output is a probability distribution over plausible continuations. Nothing in the objective rewards saying "I don't know" unless training taught it to.</td>
+              </tr>
+              <tr>
+                <td>Can't reliably count letters</td>
+                <td>Step 01. Words arrive as a handful of opaque IDs; the spelling was discarded before the network saw anything.</td>
+              </tr>
+              <tr>
+                <td>Arithmetic that looks almost right</td>
+                <td>Numbers are tokenized into fragments, and each digit of the answer is produced by the same next-token guess as everything else.</td>
+              </tr>
+              <tr>
+                <td>Forgets earlier conversation</td>
+                <td>There is no memory between calls. Anything the model "remembers" was re-sent as tokens; past the context window it is not sent at all.</td>
+              </tr>
+              <tr>
+                <td>Rambles or repeats itself</td>
+                <td>Step 06. Low temperature narrows the loop onto its own highest-probability groove; a repeated phrase makes itself more likely next time.</td>
+              </tr>
+              <tr>
+                <td>Same question, different answer</td>
+                <td>Sampling is a draw, not a lookup. Change the seed or the temperature and you change the text.</td>
+              </tr>
+              <tr>
+                <td>Thinking out loud helps it</td>
+                <td>Each token gets a fixed amount of computation. Writing intermediate steps buys more forward passes, and puts its own reasoning back in the context.</td>
+              </tr>
+              <tr>
+                <td>Knowledge stops at a date</td>
+                <td>Weights are frozen after training. Anything newer has to arrive through the context — search results, files, tool output.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="copy reveal" style="margin-top:38px">
+      <h3>Glossary</h3>
+    </div>
+    <div class="panel reveal" style="margin-top:14px">
+      <div class="panel-body">
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>Token</td><td>A chunk of text with an ID in the model's fixed vocabulary. Roughly ¾ of an English word on average.</td></tr>
+              <tr><td>Embedding</td><td>The learned vector a token ID is replaced by, and the space those vectors live in.</td></tr>
+              <tr><td>Context window</td><td>The maximum number of tokens the model can attend over in one pass. Prompt and output share it.</td></tr>
+              <tr><td>Head</td><td>One independent query/key/value projection inside an attention layer. A layer runs many in parallel.</td></tr>
+              <tr><td>Residual stream</td><td>The running vector each layer reads from and adds to, rather than overwriting.</td></tr>
+              <tr><td>Logit</td><td>A raw, unnormalised score for one vocabulary entry, before softmax turns the set of them into probabilities.</td></tr>
+              <tr><td>Temperature</td><td>A divisor applied to logits before softmax. Lower is sharper and more deterministic.</td></tr>
+              <tr><td>Top-k / top-p</td><td>Truncation rules applied before the draw: keep the k best tokens, or the smallest set whose probabilities reach p.</td></tr>
+              <tr><td>Perplexity</td><td>The exponential of the average loss. Read it as "how many equally likely options the model felt it was choosing between".</td></tr>
+              <tr><td>Parameter</td><td>One learned number. A modern model has hundreds of billions of them, and all of them are just floats.</td></tr>
+              <tr><td>KV cache</td><td>Stored keys and values from earlier positions, so each generation step only computes the new one.</td></tr>
+              <tr><td>Inference</td><td>Running the trained model. Nothing is learned; no weight changes.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel reveal" id="corpus-panel">
+      <div class="panel-head">
+        <span class="panel-title">The corpus</span>
+        <span class="spacer"></span>
+        <span class="hint" style="margin:0">Sections 6 and 7 are trained on exactly this text.</span>
+      </div>
+      <div class="panel-body" id="corpus-body"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <p>
+        Everything on this page runs locally in your browser. No model is
+        downloaded and no request leaves the page: the demos are small, honest
+        implementations of each step, written so the numbers on screen are really
+        computed rather than staged.
+      </p>
+      <div class="tag-row">
+        <span class="tag">no dependencies</span>
+        <span class="tag">no network</span>
+        <span class="tag">~1k real parameters</span>
+        <span class="tag">MIT</span>
+      </div>
+    </div>
+    <div>
+      <p><a href="https://github.com/ctbot000/llm-internal">Source on GitHub</a></p>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
