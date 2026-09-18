@@ -9,15 +9,18 @@
 import { h, s, svgRoot, fill, $, slider, segmented, big, pct, clamp } from './util.js';
 
 const PRESETS = {
-  toy:   { label: 'this page', d: 8,    L: 1,  heads: 4,  ff: 32,    V: 791,    gated: false, tied: true },
-  gpt2:  { label: 'GPT-2 small', d: 768,  L: 12, heads: 12, ff: 3072,  V: 50257,  gated: false, tied: true },
-  mid:   { label: '7B-class',  d: 4096, L: 32, heads: 32, ff: 11008, V: 32000,  gated: true,  tied: false },
-  large: { label: '70B-class', d: 8192, L: 80, heads: 64, ff: 28672, V: 128256, gated: true,  tied: false },
+  toy:   { label: 'this page',   d: 8,    L: 1,  heads: 4,  kv: 4,  ff: 32,    V: 791,    gated: false, tied: true },
+  gpt2:  { label: 'GPT-2 small', d: 768,  L: 12, heads: 12, kv: 12, ff: 3072,  V: 50257,  gated: false, tied: true },
+  mid:   { label: '7B-class',    d: 4096, L: 32, heads: 32, kv: 32, ff: 11008, V: 32000,  gated: true,  tied: false },
+  large: { label: '70B-class',   d: 8192, L: 80, heads: 64, kv: 8,  ff: 28672, V: 128256, gated: true,  tied: false },
 };
 
 function budget(c) {
   const embed = c.V * c.d * (c.tied ? 1 : 2);
-  const attnPer = 4 * c.d * c.d;
+  // Query and output projections are always full width. Key and value shrink
+  // with the number of KV heads, which is the whole of grouped-query attention.
+  const share = clamp(c.kv / c.heads, 0, 1);
+  const attnPer = (2 + 2 * share) * c.d * c.d;
   const mlpPer = (c.gated ? 3 : 2) * c.d * c.ff;
   const normPer = 2 * c.d;
   const attn = c.L * attnPer;
@@ -25,6 +28,13 @@ function budget(c) {
   const norms = c.L * normPer + c.d;
   const total = embed + attn + mlp + norms;
   return { embed, attn, mlp, norms, total, attnPer, mlpPer, nonEmbed: attn + mlp + norms };
+}
+
+/** Two bytes per weight, in whichever unit does not read as zero. */
+function bytes(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  return `${(n / 1e3).toFixed(1)} KB`;
 }
 
 function blockDiagram() {
@@ -126,6 +136,16 @@ export function mount() {
     format: (v) => big(v), onInput: (v) => { cfg.V = v; render(); },
   });
 
+  const attnKind = segmented({
+    label: 'attention shape',
+    options: [
+      { value: 'mha', label: 'full', title: 'one key/value head per query head' },
+      { value: 'gqa', label: 'grouped', title: 'query heads share a smaller set of key/value heads, which is what shrinks the KV cache' },
+    ],
+    value: cfg.kv < cfg.heads ? 'gqa' : 'mha',
+    onChange: (v) => { cfg.kv = v === 'gqa' ? Math.min(8, cfg.heads) : cfg.heads; render(); },
+  });
+
   const mlpKind = segmented({
     label: 'feed-forward shape',
     options: [
@@ -144,6 +164,7 @@ export function mount() {
       Object.assign(cfg, PRESETS[k]);
       dSlider.set(cfg.d); lSlider.set(cfg.L); ffSlider.set(cfg.ff); vSlider.set(cfg.V);
       mlpKind.select(cfg.gated ? 'gated' : 'plain', false);
+      attnKind.select(cfg.kv < cfg.heads ? 'gqa' : 'mha', false);
       selected = 0;
       render();
     },
@@ -213,13 +234,13 @@ export function mount() {
       ]),
       h('div', { class: 'stat' }, [
         h('div', { class: 'stat-k', text: 'Weights in memory' }),
-        h('div', { class: 'stat-v', text: `${(b.total * 2 / 1e9).toFixed(2)} GB` }),
+        h('div', { class: 'stat-v', text: bytes(b.total * 2) }),
         h('div', { class: 'stat-n', text: 'at 2 bytes per weight, before any context is loaded' }),
       ]),
       h('div', { class: 'stat' }, [
         h('div', { class: 'stat-k', text: 'Multiply-adds / token' }),
         h('div', { class: 'stat-v', text: big(2 * b.nonEmbed) }),
-        h('div', { class: 'stat-n', text: `roughly 2 per weight \u00b7 ${heads} heads of ${Math.round(cfg.d / heads)} dimensions each` }),
+        h('div', { class: 'stat-n', text: `roughly 2 per weight \u00b7 ${heads} heads of ${Math.round(cfg.d / heads)} dimensions${cfg.kv < heads ? `, ${cfg.kv} key/value heads` : ''}` }),
       ]),
     ]);
   }
@@ -241,7 +262,10 @@ export function mount() {
         h('div', { class: 'strip-label', text: 'the stack' }),
         stack,
         note,
-        h('div', { style: 'margin-top:18px' }, [shape, mlpKind]),
+        h('div', { style: 'margin-top:18px' }, [
+        shape,
+        h('div', { class: 'btn-row', style: 'margin-top:12px' }, [attnKind, mlpKind]),
+      ]),
       ]),
     ]),
     h('div', { style: 'margin-top:22px' }, [table, stats]),
